@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Ruang Pengasapan Ikan — Riwayat</title>
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+<div class="container">
+
+    <header>
+        <div class="logo-container">
+            <img src="unika.png" alt="UNIKA" class="logo">
+            <div class="header-title">
+                <h1>RIWAYAT SESI PENGASAPAN IKAN</h1>
+                <p>Universitas Katolik Soegijapranata</p>
+            </div>
+        </div>
+        <div class="date-display">
+            <p id="current-date">Mengambil tanggal...</p>
+            <p id="current-time">Mengambil waktu...</p>
+        </div>
+    </header>
+
+    <nav class="tabs" aria-label="Halaman">
+        <a class="tab" href="index.html"><i class="fas fa-satellite-dish"></i> Real-Time</a>
+        <a class="tab active" href="riwayat.html"><i class="fas fa-clock-rotate-left"></i> Riwayat</a>
+    </nav>
+
+    <div class="notice" id="config-error" hidden>
+        <i class="fas fa-gear"></i>
+        <div><h3>Konfigurasi belum lengkap</h3><p id="config-error-text"></p></div>
+    </div>
+
+    <!-- ── PILIH SESI ── -->
+    <section class="card controls">
+        <label for="session-select"><i class="fas fa-list"></i> Pilih sesi pengasapan</label>
+        <div class="controls-row">
+            <select id="session-select" disabled><option>Memuat daftar sesi...</option></select>
+            <button type="button" class="action-btn compact" id="btn-refresh"><i class="fas fa-rotate"></i> Muat ulang</button>
+        </div>
+        <p class="hint" id="list-hint"></p>
+    </section>
+
+    <div class="notice" id="data-error" hidden>
+        <i class="fas fa-triangle-exclamation"></i>
+        <div><h3>Data tidak dapat dimuat</h3><p id="data-error-text"></p></div>
+    </div>
+
+    <p class="loading" id="loading" hidden><i class="fas fa-spinner fa-spin"></i> Memuat data sesi...</p>
+
+    <div id="result" hidden>
+
+        <!-- ── RINGKASAN ── -->
+        <section class="summary-grid">
+            <div class="data-item"><div class="data-value" id="sum-count">—</div><div class="data-label">Jumlah data</div></div>
+            <div class="data-item"><div class="data-value small" id="sum-start">—</div><div class="data-label">Mulai</div></div>
+            <div class="data-item"><div class="data-value small" id="sum-finish">—</div><div class="data-label">Selesai</div></div>
+            <div class="data-item"><div class="data-value small" id="sum-duration">—</div><div class="data-label">Durasi</div></div>
+        </section>
+
+        <!-- ── GRAFIK ── -->
+        <section class="metrics">
+            <article class="card metric">
+                <div class="card-title"><h2>Suhu Ruang</h2><i class="fas fa-temperature-half" style="color:#e4572e"></i></div>
+                <p class="metric-sub" id="stat-temp">—</p>
+                <div class="chart-box"><canvas id="chart-temp"></canvas></div>
+            </article>
+            <article class="card metric">
+                <div class="card-title"><h2>Kelembapan (RH)</h2><i class="fas fa-droplet" style="color:#0083b0"></i></div>
+                <p class="metric-sub" id="stat-rh">—</p>
+                <div class="chart-box"><canvas id="chart-rh"></canvas></div>
+            </article>
+            <article class="card metric">
+                <div class="card-title"><h2>Gas CO</h2><i class="fas fa-smog" style="color:#6b7a99"></i></div>
+                <p class="metric-sub" id="stat-co">—</p>
+                <div class="chart-box"><canvas id="chart-co"></canvas></div>
+            </article>
+        </section>
+
+        <!-- ── TABEL ── -->
+        <section class="card">
+            <div class="card-title">
+                <h2>Tabel Data</h2>
+                <i class="fas fa-table" style="color:var(--primary-color)"></i>
+            </div>
+            <div class="table-wrap">
+                <table id="data-table">
+                    <thead>
+                        <tr><th>Waktu</th><th>Suhu (°C)</th><th>RH (%RH)</th><th>CO (mV)</th><th>CO (ppm)</th><th>Status data</th></tr>
+                    </thead>
+                    <tbody id="data-tbody"></tbody>
+                </table>
+            </div>
+            <div class="data-actions">
+                <a href="#" class="action-btn" id="btn-open" target="_blank" rel="noopener noreferrer"><i class="fas fa-up-right-from-square"></i> Buka tab di Google Sheets</a>
+                <a href="#" class="action-btn" id="btn-csv" target="_blank" rel="noopener noreferrer"><i class="fas fa-file-csv"></i> Unduh CSV</a>
+            </div>
+        </section>
+
+    </div>
+
+    <footer>
+        <p>Sistem Monitoring Lingkungan Ruang Pengasapan Ikan Aktif &copy; <span id="current-year"></span> - Universitas Katolik Soegijapranata</p>
+        <p>Riwayat dibaca dari Google Sheets (satu tab per sesi)</p>
+    </footer>
+
+</div>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="riwayat.js"></script>
+</body>
+</html>

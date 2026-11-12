@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Ruang Pengasapan Ikan — Real-Time</title>
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+</head>
+
+<body>
+<div class="container">
+
+    <!-- ── HEADER ── -->
+    <header>
+        <div class="logo-container">
+            <img src="unika.png" alt="UNIKA" class="logo">
+            <div class="header-title">
+                <h1>SISTEM MONITORING LINGKUNGAN RUANG PENGASAPAN IKAN AKTIF</h1>
+                <p>Universitas Katolik Soegijapranata</p>
+            </div>
+        </div>
+        <div class="date-display">
+            <p id="current-date">Mengambil tanggal...</p>
+            <p id="current-time">Mengambil waktu...</p>
+        </div>
+    </header>
+
+    <!-- ── NAVIGASI ── -->
+    <nav class="tabs" aria-label="Halaman">
+        <a class="tab active" href="index.html"><i class="fas fa-satellite-dish"></i> Real-Time</a>
+        <a class="tab" href="riwayat.html"><i class="fas fa-clock-rotate-left"></i> Riwayat</a>
+    </nav>
+
+    <!-- ── GALAT KONFIGURASI ── -->
+    <div class="notice" id="config-error" hidden>
+        <i class="fas fa-gear"></i>
+        <div><h3>Konfigurasi belum lengkap</h3><p id="config-error-text"></p></div>
+    </div>
+
+    <!-- ── STATUS SESI ── -->
+    <section class="session-banner state-wait" id="session-banner" aria-live="polite">
+        <i class="fas fa-circle-info" id="sb-icon"></i>
+        <div>
+            <h3 id="sb-title">Menghubungkan ke broker...</h3>
+            <p id="sb-text">Menunggu status dari perangkat.</p>
+        </div>
+    </section>
+
+    <!-- ── TIGA PARAMETER + GRAFIK ── -->
+    <section class="metrics">
+
+        <article class="card metric">
+            <div class="card-title">
+                <h2>Suhu Ruang</h2>
+                <i class="fas fa-temperature-half" style="color:#e4572e"></i>
+            </div>
+            <div class="metric-value"><span id="val-temp">—</span><small>°C</small></div>
+            <p class="metric-sub" id="meta-temp">Belum ada data</p>
+            <p class="chip" id="chip-temp"><i class="fas fa-circle-minus"></i> Menunggu data</p>
+            <div class="chart-box">
+                <canvas id="chart-temp"></canvas>
+                <div class="chart-empty" id="empty-temp">Grafik muncul saat sesi berjalan</div>
+            </div>
+        </article>
+
+        <article class="card metric">
+            <div class="card-title">
+                <h2>Kelembapan (RH)</h2>
+                <i class="fas fa-droplet" style="color:#0083b0"></i>
+            </div>
+            <div class="metric-value"><span id="val-rh">—</span><small>%RH</small></div>
+            <p class="metric-sub" id="meta-rh">Belum ada data</p>
+            <p class="chip" id="chip-rh"><i class="fas fa-circle-minus"></i> Menunggu data</p>
+            <div class="chart-box">
+                <canvas id="chart-rh"></canvas>
+                <div class="chart-empty" id="empty-rh">Grafik muncul saat sesi berjalan</div>
+            </div>
+        </article>
+
+        <article class="card metric">
+            <div class="card-title">
+                <h2>Gas CO</h2>
+                <i class="fas fa-smog" style="color:#6b7a99"></i>
+            </div>
+            <div class="metric-value"><span id="val-co">—</span><small id="unit-co">mV</small></div>
+            <p class="metric-sub" id="meta-co">Belum ada data</p>
+            <p class="chip" id="chip-co"><i class="fas fa-circle-minus"></i> Menunggu data</p>
+            <div class="chart-box">
+                <canvas id="chart-co"></canvas>
+                <div class="chart-empty" id="empty-co">Grafik muncul saat sesi berjalan</div>
+            </div>
+        </article>
+
+    </section>
+
+    <!-- ── INFORMASI SESI & STATUS JARINGAN ── -->
+    <section class="info-row">
+
+        <article class="card">
+            <div class="card-title">
+                <h2>Informasi Sesi</h2>
+                <i class="fas fa-stopwatch" style="color:var(--primary-color)"></i>
+            </div>
+            <div class="info-grid">
+                <div class="info-item"><i class="fas fa-fingerprint"></i><div><h3>ID Sesi</h3><p id="info-sid">—</p></div></div>
+                <div class="info-item"><i class="fas fa-play"></i><div><h3>Mulai</h3><p id="info-start">—</p></div></div>
+                <div class="info-item"><i class="fas fa-hourglass-half"></i><div><h3>Durasi</h3><p id="info-duration">—</p></div></div>
+                <div class="info-item"><i class="fas fa-microchip"></i><div><h3>Perangkat / Firmware</h3><p id="info-device">—</p></div></div>
+            </div>
+        </article>
+
+        <article class="card">
+            <div class="card-title">
+                <h2>Status Jaringan</h2>
+                <i class="fas fa-wifi" style="color:var(--primary-color)"></i>
+            </div>
+            <div class="info-grid">
+                <div class="info-item"><i class="fas fa-tower-broadcast"></i><div><h3>Broker MQTT (dashboard)</h3>
+                    <p><span class="status-dot connecting" id="net-mqtt-dot"></span> <span id="net-mqtt-text">Menghubungkan...</span></p></div></div>
+                <div class="info-item"><i class="fas fa-circle-nodes"></i><div><h3>Perangkat</h3><p id="net-device">—</p></div></div>
+                <div class="info-item"><i class="fas fa-wifi"></i><div><h3>Wi-Fi perangkat</h3><p id="net-wifi">—</p></div></div>
+                <div class="info-item"><i class="fas fa-inbox"></i><div><h3>Antrian ke Google Sheets</h3><p id="net-queue">—</p></div></div>
+                <div class="info-item"><i class="fas fa-clock"></i><div><h3>Data terakhir diterima</h3><p id="net-last">—</p></div></div>
+                <div class="info-item"><i class="fas fa-rotate"></i><div><h3>Reset terakhir perangkat</h3><p id="net-reset">—</p></div></div>
+            </div>
+        </article>
+
+    </section>
+
+    <!-- ── AKSI DATA ── -->
+    <div class="data-actions">
+        <a href="#" class="action-btn" id="btn-sheet" target="_blank" rel="noopener noreferrer">
+            <i class="fas fa-table"></i> Buka Google Sheets
+        </a>
+        <a href="riwayat.html" class="action-btn">
+            <i class="fas fa-clock-rotate-left"></i> Lihat Riwayat Sesi
+        </a>
+    </div>
+
+    <footer>
+        <p>Sistem Monitoring Lingkungan Ruang Pengasapan Ikan Aktif &copy; <span id="current-year"></span> - Universitas Katolik Soegijapranata</p>
+        <p>Data real-time via EMQX Cloud MQTT | Catatan sesi via Google Sheets</p>
+    </footer>
+
+</div>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
