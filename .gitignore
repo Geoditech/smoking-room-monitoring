@@ -1,0 +1,7 @@
+firmware/smokehouse/secrets.h
+**/secrets.h
+
+# Lain-lain
+.DS_Store
+node_modules/
+.vscode/
