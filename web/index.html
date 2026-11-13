@@ -2,109 +2,97 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f1830">
     <title>Monitoring Ruang Pengasapan Ikan — Real-Time</title>
 
+    <link rel="icon" href="unika.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
 </head>
-
 <body>
-<div class="container">
 
-    <!-- ── HEADER ── -->
-    <header>
-        <div class="logo-container">
-            <img src="unika.png" alt="UNIKA" class="logo">
-            <div class="header-title">
-                <h1>SISTEM MONITORING LINGKUNGAN RUANG PENGASAPAN IKAN AKTIF</h1>
-                <p>Universitas Katolik Soegijapranata</p>
-            </div>
-        </div>
-        <div class="date-display">
-            <p id="current-date">Mengambil tanggal...</p>
-            <p id="current-time">Mengambil waktu...</p>
-        </div>
-    </header>
+<!-- ── APP BAR ── -->
+<header class="appbar">
+    <img src="unika.png" alt="UNIKA">
+    <div class="t">
+        <h1>Ruang Pengasapan Ikan</h1>
+        <p><span id="current-date" class="only-desktop">—</span><span class="only-desktop sep"> · </span><span id="current-time">—</span></p>
+    </div>
+    <div class="pill"><span class="status-dot connecting" id="bar-dot"></span><span id="bar-text">Menghubungkan</span></div>
+</header>
 
-    <!-- ── NAVIGASI ── -->
-    <nav class="tabs" aria-label="Halaman">
-        <a class="tab active" href="index.html"><i class="fas fa-satellite-dish"></i> Real-Time</a>
-        <a class="tab" href="riwayat.html"><i class="fas fa-clock-rotate-left"></i> Riwayat</a>
-    </nav>
-
+<main>
     <!-- ── GALAT KONFIGURASI ── -->
     <div class="notice" id="config-error" hidden>
         <i class="fas fa-gear"></i>
         <div><h3>Konfigurasi belum lengkap</h3><p id="config-error-text"></p></div>
     </div>
 
-    <!-- ── STATUS SESI ── -->
-    <section class="session-banner state-wait" id="session-banner" aria-live="polite">
-        <i class="fas fa-circle-info" id="sb-icon"></i>
-        <div>
-            <h3 id="sb-title">Menghubungkan ke broker...</h3>
-            <p id="sb-text">Menunggu status dari perangkat</p>
+    <!-- ═══ DASHBOARD ═══ -->
+    <section class="view on" id="v-dash">
+        <div class="session-banner state-wait" id="session-banner" aria-live="polite">
+            <i class="fas fa-circle-info" id="sb-icon"></i>
+            <div><h3 id="sb-title">Menghubungkan ke broker...</h3><p id="sb-text">Menunggu status dari perangkat</p></div>
         </div>
-    </section>
 
-    <!-- ── TIGA PARAMETER + GRAFIK ── -->
-    <section class="metrics">
-
-        <article class="card metric">
-            <div class="card-title">
-                <h2>Suhu Ruang</h2>
-                <i class="fas fa-temperature-half" style="color:#e4572e"></i>
-            </div>
-            <div class="metric-value"><span id="val-temp">—</span><small>°C</small></div>
-            <p class="metric-sub" id="meta-temp">Belum ada data</p>
-            <p class="chip" id="chip-temp"><i class="fas fa-circle-minus"></i> Menunggu data</p>
-            <div class="chart-box">
-                <canvas id="chart-temp"></canvas>
-                <div class="chart-empty" id="empty-temp">Grafik muncul saat sesi berjalan</div>
-            </div>
-        </article>
-
-        <article class="card metric">
-            <div class="card-title">
-                <h2>Kelembapan (RH)</h2>
-                <i class="fas fa-droplet" style="color:#0083b0"></i>
-            </div>
-            <div class="metric-value"><span id="val-rh">—</span><small>%RH</small></div>
-            <p class="metric-sub" id="meta-rh">Belum ada data</p>
-            <p class="chip" id="chip-rh"><i class="fas fa-circle-minus"></i> Menunggu data</p>
-            <div class="chart-box">
-                <canvas id="chart-rh"></canvas>
-                <div class="chart-empty" id="empty-rh">Grafik muncul saat sesi berjalan</div>
-            </div>
-        </article>
-
-        <article class="card metric">
-            <div class="card-title">
-                <h2>Gas CO</h2>
-                <i class="fas fa-smog" style="color:#6b7a99"></i>
-            </div>
-            <div class="metric-value"><span id="val-co">—</span><small id="unit-co">mV</small></div>
-            <p class="metric-sub" id="meta-co">Belum ada data</p>
-            <p class="chip" id="chip-co"><i class="fas fa-circle-minus"></i> Menunggu data</p>
-            <div class="chart-box">
-                <canvas id="chart-co"></canvas>
-                <div class="chart-empty" id="empty-co">Grafik muncul saat sesi berjalan</div>
-            </div>
-        </article>
-
-    </section>
-
-    <!-- ── INFORMASI SESI & STATUS JARINGAN ── -->
-    <section class="info-row">
+        <h2 class="sec-title">Pembacaan Sensor</h2>
 
         <article class="card">
-            <div class="card-title">
-                <h2>Informasi Sesi</h2>
-                <i class="fas fa-stopwatch" style="color:var(--primary-color)"></i>
+            <div class="ct"><i class="fas fa-temperature-half" style="color:#e4572e"></i><h2>Suhu Ruang</h2></div>
+            <div class="metric-value"><span id="val-temp">—</span><small>°C</small></div>
+            <p class="chip" id="chip-temp"><i class="fas fa-circle-minus"></i> Menunggu data</p>
+            <p class="metric-sub" id="meta-temp">Belum ada data</p>
+        </article>
+
+        <article class="card">
+            <div class="ct"><i class="fas fa-droplet" style="color:#19b5e8"></i><h2>Kelembapan (RH)</h2></div>
+            <div class="metric-row">
+                <div>
+                    <p class="chip" id="chip-rh" style="margin-top:0"><i class="fas fa-circle-minus"></i> Menunggu data</p>
+                    <p class="metric-sub" id="meta-rh">Belum ada data</p>
+                </div>
+                <div class="ring" id="ring-rh"><b id="val-rh">—</b><small>%RH</small></div>
             </div>
+        </article>
+
+        <article class="card">
+            <div class="ct"><i class="fas fa-smog" style="color:#a9b6d8"></i><h2>Gas CO</h2></div>
+            <div class="metric-value"><span id="val-co">—</span><small id="unit-co">mV</small></div>
+            <p class="chip" id="chip-co"><i class="fas fa-circle-minus"></i> Menunggu data</p>
+            <p class="metric-sub" id="meta-co">Belum ada data</p>
+        </article>
+    </section>
+
+    <!-- ═══ MONITORING (grafik) ═══ -->
+    <section class="view" id="v-mon">
+        <h2 class="sec-title">Grafik Real-Time</h2>
+
+        <article class="card">
+            <div class="ct"><i class="fas fa-temperature-half" style="color:#e4572e"></i><h2>Suhu Ruang (°C)</h2></div>
+            <div class="chart-box"><canvas id="chart-temp"></canvas><div class="chart-empty" id="empty-temp">Grafik muncul saat sesi berjalan</div></div>
+        </article>
+        <article class="card">
+            <div class="ct"><i class="fas fa-droplet" style="color:#19b5e8"></i><h2>Kelembapan (%RH)</h2></div>
+            <div class="chart-box"><canvas id="chart-rh"></canvas><div class="chart-empty" id="empty-rh">Grafik muncul saat sesi berjalan</div></div>
+        </article>
+        <article class="card">
+            <div class="ct"><i class="fas fa-smog" style="color:#a9b6d8"></i><h2>Gas CO</h2></div>
+            <div class="chart-box"><canvas id="chart-co"></canvas><div class="chart-empty" id="empty-co">Grafik muncul saat sesi berjalan</div></div>
+        </article>
+    </section>
+
+    <!-- ═══ PERANGKAT (sesi & jaringan) ═══ -->
+    <section class="view" id="v-dev">
+        <h2 class="sec-title">Perangkat &amp; Jaringan</h2>
+
+        <article class="card">
+            <div class="ct"><i class="fas fa-stopwatch" style="color:var(--pri)"></i><h2>Informasi Sesi</h2></div>
             <div class="info-grid">
                 <div class="info-item"><i class="fas fa-fingerprint"></i><div><h3>ID Sesi</h3><p id="info-sid">—</p></div></div>
                 <div class="info-item"><i class="fas fa-play"></i><div><h3>Mulai</h3><p id="info-start">—</p></div></div>
@@ -114,13 +102,9 @@
         </article>
 
         <article class="card">
-            <div class="card-title">
-                <h2>Status Jaringan</h2>
-                <i class="fas fa-wifi" style="color:var(--primary-color)"></i>
-            </div>
+            <div class="ct"><i class="fas fa-wifi" style="color:var(--pri)"></i><h2>Status Jaringan</h2></div>
             <div class="info-grid">
-                <div class="info-item"><i class="fas fa-tower-broadcast"></i><div><h3>Broker MQTT (dashboard)</h3>
-                    <p><span class="status-dot connecting" id="net-mqtt-dot"></span> <span id="net-mqtt-text">Menghubungkan...</span></p></div></div>
+                <div class="info-item"><i class="fas fa-tower-broadcast"></i><div><h3>Broker MQTT (dashboard)</h3><p><span class="status-dot connecting" id="net-mqtt-dot"></span> <span id="net-mqtt-text">Menghubungkan...</span></p></div></div>
                 <div class="info-item"><i class="fas fa-circle-nodes"></i><div><h3>Perangkat</h3><p id="net-device">—</p></div></div>
                 <div class="info-item"><i class="fas fa-wifi"></i><div><h3>Wi-Fi perangkat</h3><p id="net-wifi">—</p></div></div>
                 <div class="info-item"><i class="fas fa-inbox"></i><div><h3>Antrian ke Google Sheets</h3><p id="net-queue">—</p></div></div>
@@ -129,25 +113,84 @@
             </div>
         </article>
 
+        <a href="#" class="action-btn primary" id="btn-sheet" target="_blank" rel="noopener noreferrer"><i class="fas fa-table"></i> Buka Google Sheets</a>
+
+        <footer>Universitas Katolik Soegijapranata © <span id="current-year"></span><br>Data real-time via EMQX MQTT · Catatan sesi via Google Sheets</footer>
     </section>
+</main>
 
-    <!-- ── AKSI DATA ── -->
-    <div class="data-actions">
-        <a href="#" class="action-btn" id="btn-sheet" target="_blank" rel="noopener noreferrer">
-            <i class="fas fa-table"></i> Buka Google Sheets
-        </a>
-        <a href="riwayat.html" class="action-btn">
-            <i class="fas fa-clock-rotate-left"></i> Lihat Riwayat Sesi
-        </a>
+<!-- ── NAVIGASI: bottom bar (mobile) / sidebar (desktop) ── -->
+<nav class="bnav" aria-label="Navigasi utama">
+    <div class="brand">
+        <img src="unika.png" alt="">
+        <div><b>Smoking Room</b><span>Monitoring · Geoditech</span></div>
     </div>
+    <a href="#dash" data-v="dash" class="on"><i class="fas fa-gauge-high"></i>Dashboard</a>
+    <a href="#mon" data-v="mon"><i class="fas fa-chart-line"></i>Monitoring</a>
+    <a href="riwayat.html"><i class="fas fa-clock-rotate-left"></i>Riwayat</a>
+    <a href="#dev" data-v="dev"><i class="fas fa-microchip"></i>Perangkat</a>
+    <div class="side-foot">Universitas Katolik Soegijapranata<br>Ruang Pengasapan Ikan Aktif</div>
+</nav>
 
-    <footer>
-        <p>Sistem Monitoring Lingkungan Ruang Pengasapan Ikan Aktif &copy; <span id="current-year"></span> - Universitas Katolik Soegijapranata</p>
-        <p>Data real-time via EMQX Cloud MQTT | Catatan sesi via Google Sheets</p>
-    </footer>
+<script>
+/* Tampilan saja: tema grafik, navigasi antar-bagian tanpa muat ulang (koneksi MQTT tetap hidup),
+   cermin status ke app bar, cincin RH. Mobile = satu tab per layar; desktop = semua bagian dalam satu halaman. */
+(function(){
+  if (window.Chart){ Chart.defaults.color='#8f9cc0'; Chart.defaults.borderColor='rgba(255,255,255,.07)'; Chart.defaults.font.size=11; Chart.defaults.font.family="Poppins, system-ui, sans-serif"; }
 
-</div>
+  var tabs=document.querySelectorAll('.bnav a[data-v]');
+  var desk=window.matchMedia('(min-width:1024px)');
+  var order=['dash','mon','dev'];
 
+  function current(){ var v=(location.hash||'#dash').slice(1); return document.getElementById('v-'+v)?v:'dash'; }
+  function mark(v){ tabs.forEach(function(a){ a.classList.toggle('on', a.dataset.v===v); }); }
+
+  function show(){
+    var v=current();
+    document.querySelectorAll('.view').forEach(function(s){ s.classList.toggle('on', s.id==='v-'+v); });
+    mark(v);
+    if(desk.matches){ if(location.hash){ document.getElementById('v-'+v).scrollIntoView({behavior:'smooth',block:'start'}); } }
+    else { window.scrollTo(0,0); }
+  }
+  addEventListener('hashchange',show);
+
+  /* desktop: klik menu yang sudah aktif tetap menggulir ke bagiannya */
+  tabs.forEach(function(a){ a.addEventListener('click',function(e){
+    if(!desk.matches) return;
+    e.preventDefault();
+    history.replaceState(null,'','#'+a.dataset.v);
+    show();
+  }); });
+
+  /* desktop: sorot menu sesuai bagian yang sedang terlihat */
+  var ticking=false;
+  addEventListener('scroll',function(){
+    if(!desk.matches||ticking) return; ticking=true;
+    requestAnimationFrame(function(){
+      ticking=false;
+      var v=order[0];
+      order.forEach(function(k){ if(document.getElementById('v-'+k).getBoundingClientRect().top<=140) v=k; });
+      if(innerHeight+scrollY>=document.documentElement.scrollHeight-4) v=order[order.length-1];
+      mark(v);
+    });
+  },{passive:true});
+
+  (desk.addEventListener?desk.addEventListener('change',show):desk.addListener(show));
+  show();
+
+  var dot=document.getElementById('net-mqtt-dot'), txt=document.getElementById('net-mqtt-text');
+  function sync(){
+    document.getElementById('bar-dot').className='status-dot '+(dot.className.replace('status-dot','').trim()||'connecting');
+    var t=txt.textContent; document.getElementById('bar-text').textContent=t.length>22?t.slice(0,20)+'…':t;
+  }
+  var mo=new MutationObserver(sync); mo.observe(dot,{attributes:true}); mo.observe(txt,{childList:true,characterData:true,subtree:true}); sync();
+
+  var rh=document.getElementById('val-rh'), ring=document.getElementById('ring-rh');
+  new MutationObserver(function(){
+    var n=parseFloat(rh.textContent.replace(',','.')); ring.style.setProperty('--p', isFinite(n)?Math.max(0,Math.min(100,n)):0);
+  }).observe(rh,{childList:true,characterData:true,subtree:true});
+})();
+</script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script src="script.js"></script>
