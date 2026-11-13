@@ -204,3 +204,23 @@ footer{text-align:center;font-size:10.5px;color:var(--mut);padding:8px 14px}
   #v-mon,.chart-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
   #v-mon>.card:nth-of-type(3),.chart-grid>.card:nth-child(3){grid-column:auto}
 }
+
+/* ════════ SKELETON LOADING (halaman Riwayat) ════════
+   Memakai kelas layout yang sama (.summary-grid, .chart-grid, .card) sehingga bentuknya
+   otomatis mengikuti mobile maupun desktop. Tampil bila <body class="sk-on">. */
+.skeleton{display:none;flex-direction:column;gap:12px}
+body.sk-on .skeleton{display:flex}
+body.sk-on #loading{display:none}          /* skeleton sudah menjadi indikator loading */
+@media (min-width:1024px){.skeleton{gap:16px}}
+.sk{border-radius:10px;background:linear-gradient(90deg,var(--card2) 25%,#233259 40%,var(--card2) 60%);background-size:300% 100%;animation:sk-shimmer 1.4s ease-in-out infinite}
+@keyframes sk-shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+.sk-num{width:48%;height:24px;margin-bottom:8px}
+.sk-label{width:34%;height:11px}
+.sk-icon{width:36px;height:36px;border-radius:12px;flex:none}
+.sk-title{width:40%;height:14px}
+.sk-line{width:70%;height:11px;margin-bottom:12px}
+.sk-chart{width:100%;height:190px;border-radius:14px}
+.sk-row{width:100%;height:52px;border-radius:14px;margin-bottom:8px}
+@media (min-width:640px){.sk-chart{height:220px}}
+@media (min-width:1024px){.sk-chart{height:270px}.sk-row{height:40px;border-radius:10px}}
+@media (prefers-reduced-motion:reduce){.sk{animation:none}}
