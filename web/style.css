@@ -1,11 +1,3 @@
-/* ════════════════════════════════════════════════════════════════════
-   Smoking Room Monitoring — style.css
-   Desain mengikuti aplikasi Android (APK): tema gelap navy, kartu
-   membulat, app bar ringkas, bottom navigation, kartu-baris untuk tabel.
-   Mobile = tampilan APK apa adanya. Tablet/desktop = identitas yang sama,
-   komposisi diperluas (sidebar, grid kartu, tabel penuh).
-   Font Poppins dimuat lewat <link> di HTML.
-   ════════════════════════════════════════════════════════════════════ */
 :root{--bg:#0a1020;--bar:#0f1830;--card:#131d35;--card2:#1a2644;--line:#22305a;--tx:#eaf0ff;--mut:#8f9cc0;--pri:#4d8dff;--sec:#19b5e8;--ok:#2ed3a0;--warn:#ffc83d;--bad:#ff6b5f;--r:20px;--nav:68px}
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{color-scheme:dark}
