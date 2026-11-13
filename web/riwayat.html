@@ -2,36 +2,30 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f1830">
     <title>Monitoring Ruang Pengasapan Ikan — Riwayat</title>
 
+    <link rel="icon" href="unika.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
-
 <body>
-<div class="container">
 
-    <header>
-        <div class="logo-container">
-            <img src="unika.png" alt="UNIKA" class="logo">
-            <div class="header-title">
-                <h1>RIWAYAT SESI PENGASAPAN IKAN</h1>
-                <p>Universitas Katolik Soegijapranata</p>
-            </div>
-        </div>
-        <div class="date-display">
-            <p id="current-date">Mengambil tanggal...</p>
-            <p id="current-time">Mengambil waktu...</p>
-        </div>
-    </header>
+<!-- ── APP BAR ── -->
+<header class="appbar">
+    <img src="unika.png" alt="UNIKA">
+    <div class="t">
+        <h1>Riwayat Sesi</h1>
+        <p><span id="current-date" class="only-desktop">—</span><span class="only-desktop sep"> · </span><span id="current-time">—</span></p>
+    </div>
+</header>
 
-    <nav class="tabs" aria-label="Halaman">
-        <a class="tab" href="index.html"><i class="fas fa-satellite-dish"></i> Real-Time</a>
-        <a class="tab active" href="riwayat.html"><i class="fas fa-clock-rotate-left"></i> Riwayat</a>
-    </nav>
-
+<main>
     <div class="notice" id="config-error" hidden>
         <i class="fas fa-gear"></i>
         <div><h3>Konfigurasi belum lengkap</h3><p id="config-error-text"></p></div>
@@ -42,7 +36,7 @@
         <label for="session-select"><i class="fas fa-list"></i> Pilih sesi pengasapan</label>
         <div class="controls-row">
             <select id="session-select" disabled><option>Memuat daftar sesi...</option></select>
-            <button type="button" class="action-btn compact" id="btn-refresh"><i class="fas fa-rotate"></i> Muat ulang</button>
+            <button type="button" class="action-btn" id="btn-refresh"><i class="fas fa-rotate"></i> Muat ulang</button>
         </div>
         <p class="hint" id="list-hint"></p>
     </section>
@@ -54,41 +48,38 @@
 
     <p class="loading" id="loading" hidden><i class="fas fa-spinner fa-spin"></i> Memuat data sesi...</p>
 
-    <div id="result" hidden>
+    <div class="result" id="result" hidden>
 
         <!-- ── RINGKASAN ── -->
         <section class="summary-grid">
             <div class="data-item"><div class="data-value" id="sum-count">—</div><div class="data-label">Jumlah data</div></div>
+            <div class="data-item"><div class="data-value small" id="sum-duration">—</div><div class="data-label">Durasi</div></div>
             <div class="data-item"><div class="data-value small" id="sum-start">—</div><div class="data-label">Mulai</div></div>
             <div class="data-item"><div class="data-value small" id="sum-finish">—</div><div class="data-label">Selesai</div></div>
-            <div class="data-item"><div class="data-value small" id="sum-duration">—</div><div class="data-label">Durasi</div></div>
         </section>
 
-        <!-- ── GRAFIK ── -->
-        <section class="metrics">
-            <article class="card metric">
-                <div class="card-title"><h2>Suhu Ruang</h2><i class="fas fa-temperature-half" style="color:#e4572e"></i></div>
-                <p class="metric-sub" id="stat-temp">—</p>
+        <!-- ── GRAFIK + STATISTIK MIN / RATA-RATA / MAKS ── -->
+        <section class="chart-grid">
+            <article class="card">
+                <div class="ct"><i class="fas fa-temperature-half" style="color:#e4572e"></i><h2>Suhu Ruang</h2></div>
+                <p class="metric-sub stat" id="stat-temp">—</p>
                 <div class="chart-box"><canvas id="chart-temp"></canvas></div>
             </article>
-            <article class="card metric">
-                <div class="card-title"><h2>Kelembapan (RH)</h2><i class="fas fa-droplet" style="color:#0083b0"></i></div>
-                <p class="metric-sub" id="stat-rh">—</p>
+            <article class="card">
+                <div class="ct"><i class="fas fa-droplet" style="color:#19b5e8"></i><h2>Kelembapan (RH)</h2></div>
+                <p class="metric-sub stat" id="stat-rh">—</p>
                 <div class="chart-box"><canvas id="chart-rh"></canvas></div>
             </article>
-            <article class="card metric">
-                <div class="card-title"><h2>Gas CO</h2><i class="fas fa-smog" style="color:#6b7a99"></i></div>
-                <p class="metric-sub" id="stat-co">—</p>
+            <article class="card">
+                <div class="ct"><i class="fas fa-smog" style="color:#a9b6d8"></i><h2>Gas CO</h2></div>
+                <p class="metric-sub stat" id="stat-co">—</p>
                 <div class="chart-box"><canvas id="chart-co"></canvas></div>
             </article>
         </section>
 
         <!-- ── TABEL ── -->
         <section class="card">
-            <div class="card-title">
-                <h2>Tabel Data</h2>
-                <i class="fas fa-table" style="color:var(--primary-color)"></i>
-            </div>
+            <div class="ct"><i class="fas fa-table" style="color:var(--pri)"></i><h2>Tabel Data</h2></div>
             <div class="table-wrap">
                 <table id="data-table">
                     <thead>
@@ -102,16 +93,25 @@
                 <a href="#" class="action-btn" id="btn-csv" target="_blank" rel="noopener noreferrer"><i class="fas fa-file-csv"></i> Unduh CSV</a>
             </div>
         </section>
-
     </div>
 
-    <footer>
-        <p>Sistem Monitoring Lingkungan Ruang Pengasapan Ikan Aktif &copy; <span id="current-year"></span> - Universitas Katolik Soegijapranata</p>
-        <p>Riwayat dibaca dari Google Sheets (satu tab per sesi)</p>
-    </footer>
+    <footer>Universitas Katolik Soegijapranata © <span id="current-year"></span><br>Riwayat dibaca dari Google Sheets (satu tab per sesi)</footer>
+</main>
 
-</div>
+<!-- ── NAVIGASI: bottom bar (mobile) / sidebar (desktop) ── -->
+<nav class="bnav" aria-label="Navigasi utama">
+    <div class="brand">
+        <img src="unika.png" alt="">
+        <div><b>Smoking Room</b><span>Monitoring · Geoditech</span></div>
+    </div>
+    <a href="index.html#dash"><i class="fas fa-gauge-high"></i>Dashboard</a>
+    <a href="index.html#mon"><i class="fas fa-chart-line"></i>Monitoring</a>
+    <a href="riwayat.html" class="on"><i class="fas fa-clock-rotate-left"></i>Riwayat</a>
+    <a href="index.html#dev"><i class="fas fa-microchip"></i>Perangkat</a>
+    <div class="side-foot">Universitas Katolik Soegijapranata<br>Ruang Pengasapan Ikan Aktif</div>
+</nav>
 
+<script>if(window.Chart){Chart.defaults.color='#8f9cc0';Chart.defaults.borderColor='rgba(255,255,255,.07)';Chart.defaults.font.size=11;Chart.defaults.font.family="Poppins, system-ui, sans-serif";}</script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script src="riwayat.js"></script>
