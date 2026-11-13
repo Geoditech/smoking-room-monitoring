@@ -9,12 +9,17 @@
     <link rel="icon" href="unika.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- Percepat koneksi ke Google: Apps Script (+ domain tujuan redirect-nya) dan Sheets (gviz).
+         "crossorigin" wajib karena riwayat.js memakai fetch (mode CORS). -->
+    <link rel="preconnect" href="https://script.google.com" crossorigin>
+    <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+    <link rel="preconnect" href="https://docs.google.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
-<body>
+<body class="sk-on">
 
 <!-- ── APP BAR ── -->
 <header class="appbar">
@@ -47,6 +52,25 @@
     </div>
 
     <p class="loading" id="loading" hidden><i class="fas fa-spinner fa-spin"></i> Memuat data sesi...</p>
+
+    <!-- ── SKELETON: tampil sejak paint pertama, hilang saat data/galat siap (diatur skrip kecil di bawah) ── -->
+    <div class="skeleton" aria-hidden="true">
+        <section class="summary-grid">
+            <div class="data-item"><div class="sk sk-num"></div><div class="sk sk-label"></div></div>
+            <div class="data-item"><div class="sk sk-num"></div><div class="sk sk-label"></div></div>
+            <div class="data-item"><div class="sk sk-num"></div><div class="sk sk-label"></div></div>
+            <div class="data-item"><div class="sk sk-num"></div><div class="sk sk-label"></div></div>
+        </section>
+        <section class="chart-grid">
+            <article class="card"><div class="ct"><div class="sk sk-icon"></div><div class="sk sk-title"></div></div><div class="sk sk-line"></div><div class="sk sk-chart"></div></article>
+            <article class="card"><div class="ct"><div class="sk sk-icon"></div><div class="sk sk-title"></div></div><div class="sk sk-line"></div><div class="sk sk-chart"></div></article>
+            <article class="card"><div class="ct"><div class="sk sk-icon"></div><div class="sk sk-title"></div></div><div class="sk sk-line"></div><div class="sk sk-chart"></div></article>
+        </section>
+        <section class="card">
+            <div class="ct"><div class="sk sk-icon"></div><div class="sk sk-title"></div></div>
+            <div class="sk sk-row"></div><div class="sk sk-row"></div><div class="sk sk-row"></div>
+        </section>
+    </div>
 
     <div class="result" id="result" hidden>
 
@@ -112,6 +136,24 @@
 </nav>
 
 <script>if(window.Chart){Chart.defaults.color='#8f9cc0';Chart.defaults.borderColor='rgba(255,255,255,.07)';Chart.defaults.font.size=11;Chart.defaults.font.family="Poppins, system-ui, sans-serif";}</script>
+<script>
+/* Mengatur skeleton TANPA mengubah riwayat.js: cukup mengamati atribut "hidden" yang sudah dipakai riwayat.js.
+   Skeleton tampil selama hasil belum ada; hilang bila hasil tampil, ada galat, daftar sesi kosong/gagal, atau konfigurasi belum lengkap. */
+(function(){
+  var $=function(i){return document.getElementById(i)};
+  var res=$('result'), err=$('data-error'), cfg=$('config-error'), sel=$('session-select');
+  function update(){
+    var first=sel.options[0]?sel.options[0].text:'';
+    var listStopped=sel.disabled && !/^Memuat/.test(first);      // "Belum ada sesi", "Gagal memuat", "Belum dikonfigurasi"
+    var show=res.hidden && err.hidden && cfg.hidden && !listStopped;
+    document.body.classList.toggle('sk-on',show);
+  }
+  var mo=new MutationObserver(update), A={attributes:true,attributeFilter:['hidden']};
+  mo.observe(res,A); mo.observe(err,A); mo.observe(cfg,A);
+  mo.observe(sel,{childList:true,attributes:true,attributeFilter:['disabled']});
+  update();
+})();
+</script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script src="riwayat.js"></script>
