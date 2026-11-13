@@ -154,6 +154,90 @@
   update();
 })();
 </script>
+<script>
+/* ── CACHE sessionStorage (stale-while-revalidate) ─────────────────────────────────────────
+   Membungkus window.fetch SEBELUM riwayat.js jalan, sehingga riwayat.js tidak perlu diubah.
+   • Daftar sesi (?action=sessions): kunjungan berikutnya langsung dari cache, lalu diperbarui di latar.
+     Bila hasil terbaru berbeda, daftar dimuat ulang otomatis (kecuali pengguna sudah berinteraksi).
+   • Data grafik/tabel (gviz): hanya sesi yang SUDAH SELESAI > 5 menit yang di-cache (isinya tak berubah lagi).
+     Sesi yang masih berjalan selalu diambil dari jaringan, jadi tidak pernah menampilkan data basi.
+   • Tombol "Muat ulang" selalu melewati cache dan mengosongkan cache data.
+   • Cache hanya ada selama tab terbuka (sessionStorage). Ganti ke localStorage di 3 fungsi s* bila ingin awet. */
+(function(){
+  var NS='smk:v1:', origFetch=window.fetch.bind(window);
+  var LIST_RE=/[?&]action=sessions(&|$)/, GVIZ_RE=/\/gviz\/tq/;
+  var SETTLE_S=300;                     // sesi dianggap final bila selesai lebih dari 5 menit lalu
+  var finish={};                        // gid -> finish_ts (null = masih berjalan)
+  var bypass=false, revalidated=false, touched=false, auto=false;
+
+  function sget(k){ try{ return sessionStorage.getItem(NS+k); }catch(e){ return null; } }
+  function sset(k,v){ try{ sessionStorage.setItem(NS+k,v); }catch(e){ /* penuh / diblokir: abaikan */ } }
+  function sclear(prefix){ try{ Object.keys(sessionStorage).forEach(function(k){ if(k.indexOf(NS+prefix)===0) sessionStorage.removeItem(k); }); }catch(e){} }
+  function parse(t){ try{ return JSON.parse(t); }catch(e){ return null; } }
+  function reply(text,type){ return new Response(text,{status:200,headers:{'Content-Type':type}}); }
+  function learn(o){ if(o&&o.ok&&o.sessions) o.sessions.forEach(function(s){ finish[String(s.gid)]=s.finish_ts||null; }); }
+  function sig(o){ return JSON.stringify((o&&o.sessions)||[]); }        // abaikan field "generated" yang selalu berubah
+
+  window.fetch=function(input,init){
+    var url=typeof input==='string'?input:((input&&input.url)||'');
+    if(LIST_RE.test(url))  return list(url,input,init);
+    if(GVIZ_RE.test(url))  return gviz(url,input,init);
+    return origFetch(input,init);
+  };
+
+  function list(url,input,init){
+    var key='list:'+url, cached=sget(key), cobj=cached&&parse(cached);
+    if(!bypass && cobj && cobj.ok){                                     // ada cache: tampilkan langsung
+      learn(cobj);
+      if(!revalidated){ revalidated=true; revalidate(url,key,cobj); }
+      return Promise.resolve(reply(cached,'application/json'));
+    }
+    bypass=false;
+    return origFetch(input,init).then(function(res){
+      return res.clone().text().then(function(t){
+        var o=parse(t); if(o&&o.ok){ sset(key,t); learn(o); }
+        return res;
+      });
+    }).catch(function(e){
+      if(cobj&&cobj.ok) return reply(cached,'application/json');        // offline: pakai cache terakhir
+      throw e;
+    });
+  }
+
+  function revalidate(url,key,old){
+    origFetch(url,{cache:'no-store'}).then(function(r){ return r.text(); }).then(function(t){
+      var o=parse(t); if(!o||!o.ok) return;
+      sset(key,t); learn(o);
+      if(sig(o)!==sig(old) && !touched){                                // daftar berubah -> muat ulang otomatis
+        var b=document.getElementById('btn-refresh');
+        if(b){ auto=true; b.click(); }
+      }
+    }).catch(function(){});
+  }
+
+  function gviz(url,input,init){
+    var m=url.match(/[?&]gid=(\d+)/), gid=m&&m[1], fin=gid?finish[gid]:null;
+    var isFinal=!!fin && (Date.now()/1000-fin)>SETTLE_S;
+    var key='g:'+url, cached=isFinal?sget(key):null;
+    if(cached) return Promise.resolve(reply(cached,'text/plain'));
+    return origFetch(input,init).then(function(res){
+      if(!isFinal) return res;                                          // sesi berjalan: jangan di-cache
+      return res.clone().text().then(function(t){
+        if(/"status"\s*:\s*"ok"/.test(t)) sset(key,t);
+        return res;
+      });
+    });
+  }
+
+  /* interaksi pengguna: "Muat ulang" = lewati cache; ganti sesi = jangan auto-muat-ulang */
+  document.addEventListener('click',function(e){
+    var b=e.target.closest&&e.target.closest('#btn-refresh'); if(!b) return;
+    if(auto){ auto=false; return; }
+    touched=true; bypass=true; sclear('g:');
+  },true);
+  document.addEventListener('change',function(e){ if(e.target&&e.target.id==='session-select') touched=true; },true);
+})();
+</script>
 <script src="config.js"></script>
 <script src="common.js"></script>
 <script src="riwayat.js"></script>
