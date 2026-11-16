@@ -169,7 +169,9 @@
     const t = num(d.temp_c);
     setText('val-temp', fmtNum(t, 2));
     setText('meta-temp', upd);
-    if (flt & 1) setChip('chip-temp', 'fa-plug-circle-xmark', 'Sensor suhu tidak terbaca' + (d.t_flt ? ' (kode ' + d.t_flt + ')' : ''));
+    // Fault PT100 (flt bit0 / t_flt) sengaja tidak ditampilkan di dashboard; cukup di Serial Monitor.
+    // Chip hanya menyatakan tidak terbaca bila memang tidak ada nilai suhu sama sekali.
+    if (t === null) setChip('chip-temp', 'fa-plug-circle-xmark', 'Sensor suhu tidak terbaca');
     else setChip('chip-temp', 'fa-circle-check', 'Sensor terbaca');
     pushPoint('temp', label, t);
 
