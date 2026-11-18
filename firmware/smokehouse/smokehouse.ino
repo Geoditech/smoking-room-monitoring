@@ -3,7 +3,8 @@
   SISTEM MONITORING LINGKUNGAN RUANG PENGASAPAN IKAN AKTIF
   Firmware ESP32  |  PRD-SMLRPI-001 v2.0  +  CR-001 (toggle switch)
  ======================================================================
-  Mengukur: Suhu (PT100 + MAX31865), RH (SHT20), CO (MICS-5524 / ADC).
+  Mengukur: Suhu (PT100 + MAX31865, cadangan SHT20), RH (SHT20),
+            CO (MICS-5524 / ADC).
   Mengirim: MQTT tiap 3-5 detik (dashboard real-time) dan
             webhook Google Apps Script tiap 1 menit (catatan per sesi).
   Kendali : SATU toggle switch.  ON = mulai sesi,  OFF = akhiri sesi.
@@ -38,6 +39,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <time.h>
+#include <math.h>
 #include <esp_task_wdt.h>
 #include <esp_system.h>
 #include <Adafruit_MAX31865.h>
@@ -70,7 +72,7 @@ struct QItem;
 // ======================================================================
 // 1. KONFIGURASI & KONSTANTA  (bukan rahasia — aman diubah di sini)
 // ======================================================================
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.1.0"
 
 // ---- Pin (PRD HW-005, HW-006, HW-007, HW-010 + CR-001) ----
 static const int PIN_SPI_SCK     = 18;   // MAX31865
@@ -80,7 +82,7 @@ static const int PIN_MAX31865_CS = 5;
 static const int PIN_I2C_SDA     = 21;   // SHT20
 static const int PIN_I2C_SCL     = 22;
 static const int PIN_CO_ADC      = 34;   // MICS-5524 AOUT via pembagi (ADC1)
-static const int PIN_SWITCH      = 32;   // toggle: ON = terhubung ke GND (LOW)
+static const int PIN_SWITCH      = 32;   // toggle: ON = terhubung ke 3V3 (HIGH)
 // GPIO33 (bekas tombol STOP) tidak dipakai lagi.
 
 // ---- PT100 / MAX31865 ----
@@ -183,7 +185,7 @@ struct Snapshot {          // nilai sensor terbaru (diisi loop, dibaca mqttTask)
   bool     valid;
   uint32_t ts;             // epoch UTC (detik), 0 = waktu belum valid
   float    temp, rh, coMv, coPinMv, coPpm;
-  uint8_t  flt;            // bit0 suhu, bit1 RH, bit2 CO, bit3 CO masih pemanasan
+  uint8_t  flt;            // bit0 suhu PT100, bit1 RH, bit2 CO, bit3 CO masih pemanasan
   uint8_t  tflt;           // register fault MAX31865 (0 = normal)
 };
 
@@ -437,11 +439,19 @@ static void tempRead() {
   s_temp = t + cfg.tempOffset;
 }
 
-// ---- 6b. RH: SHT20 langsung via I2C (tanpa library, alamat 0x40) -----
-static const uint8_t SHT_ADDR = 0x40;
+// ---- 6b. SHT20 langsung via I2C (alamat 0x40): RH + suhu cadangan -----
+// RH dan suhu dibaca bergantian (satu per siklus), jadi masing-masing
+// diperbarui tiap ~2 detik. Suhu SHT20 hanya dipakai bila PT100 = NAN.
+static const uint8_t SHT_ADDR   = 0x40;
+static const uint8_t SHT_CMD_RH = 0xF5;   // trigger RH, no-hold master
+static const uint8_t SHT_CMD_T  = 0xF3;   // trigger suhu, no-hold master
+
 static float    s_rh = NAN;
 static bool     s_rhFault = true;          // true sampai ada pembacaan sukses
-static bool     s_rhPending = false;
+static float    s_shtT = NAN;              // suhu dari SHT20
+static bool     s_shtTFault = true;
+static uint8_t  s_shtPendingCmd = 0;       // 0 = tidak ada konversi berjalan
+static uint8_t  s_shtNextCmd = SHT_CMD_RH; // bergantian RH <-> suhu
 static uint8_t  s_rhFails = 0;
 static uint32_t s_rhNextTryAt = 0;         // saat sensor dinyatakan fault: coba lagi tiap RH_RETRY_MS
 
@@ -459,32 +469,45 @@ static void rhInit() {
 static void rhFail() {
   if (s_rhFails < 250) s_rhFails++;
   if (s_rhFails >= 3) {
-    s_rh = NAN; s_rhFault = true;
+    s_rh   = NAN; s_rhFault   = true;
+    s_shtT = NAN; s_shtTFault = true;
     s_rhNextTryAt = millis() + RH_RETRY_MS;       // jangan tanya terus tiap detik
   }
   if (s_rhFails % 10 == 0) rhSoftReset();           // coba pulihkan bus/sensor
 }
 
-// Dipanggil sekali per siklus: ambil hasil konversi siklus lalu, picu yang baru.
+// Dipanggil sekali per siklus: ambil hasil konversi siklus lalu, picu yang berikutnya.
 static void rhRead() {
   if (s_rhFault && s_rhFails >= 3 && (int32_t)(millis() - s_rhNextTryAt) < 0) return;   // masih menunggu jeda coba ulang
-  if (s_rhPending) {
-    s_rhPending = false;
+
+  if (s_shtPendingCmd) {
+    uint8_t cmd = s_shtPendingCmd;
+    s_shtPendingCmd = 0;
     if (Wire.requestFrom(SHT_ADDR, (uint8_t)3) == 3) {
       uint8_t m = Wire.read(), l = Wire.read(), c = Wire.read();
       if (crc8Sht(m, l) == c) {
         uint16_t raw = (((uint16_t)m << 8) | l) & 0xFFFC;
-        float rh = -6.0f + 125.0f * (float)raw / 65536.0f;
-        if (rh < 0)   rh = 0;
-        if (rh > 100) rh = 100;
-        s_rh = rh + cfg.rhOffset;
-        s_rhFault = false; s_rhFails = 0;
+        if (cmd == SHT_CMD_RH) {
+          float rh = -6.0f + 125.0f * (float)raw / 65536.0f;
+          if (rh < 0)   rh = 0;
+          if (rh > 100) rh = 100;
+          s_rh = rh + cfg.rhOffset;
+          s_rhFault = false;
+        } else {
+          float t = -46.85f + 175.72f * (float)raw / 65536.0f;
+          if (t > -40.0f && t < 125.0f) { s_shtT = t;   s_shtTFault = false; }
+          else                          { s_shtT = NAN; s_shtTFault = true;  }
+        }
+        s_rhFails = 0;
       } else rhFail();
     } else rhFail();
   }
+
+  uint8_t cmd = s_shtNextCmd;
+  s_shtNextCmd = (cmd == SHT_CMD_RH) ? SHT_CMD_T : SHT_CMD_RH;
   Wire.beginTransmission(SHT_ADDR);
-  Wire.write((uint8_t)0xF5);                         // trigger RH, no-hold master
-  if (Wire.endTransmission() == 0) s_rhPending = true; else rhFail();
+  Wire.write(cmd);
+  if (Wire.endTransmission() == 0) s_shtPendingCmd = cmd; else rhFail();
 }
 
 // ---- 6c. CO: MICS-5524 via ADC1 GPIO34 -------------------------------
@@ -547,12 +570,22 @@ static void sampleAll() {
   tempRead();
   rhRead();
   coRead();
+  
+  static uint32_t lastPtWarn = 0;
+  if (s_tFault && (millis() - lastPtWarn) >= 10000) {   // maks 1x per 10 detik
+    lastPtWarn = millis();
+    Serial.printf("PERINGATAN PT100: fault=0x%02X (%u) -> suhu memakai SHT20\n", s_tFault, s_tFault);
+  }
+
+  // Suhu: PT100 utama; bila PT100/MAX31865 tidak membaca (NAN), pakai SHT20.
+  float tOut = s_temp;
+  if (isnan(tOut) && !s_shtTFault && !isnan(s_shtT)) tOut = s_shtT;
 
   Snapshot s;
   s.valid = true;
   time_t now = time(nullptr);
   s.ts = (now > MIN_VALID_EPOCH) ? (uint32_t)now : 0;
-  s.temp = s_temp; s.rh = s_rh; s.coMv = s_coMv; s.coPinMv = s_coPin; s.coPpm = s_coPpm;
+  s.temp = tOut; s.rh = s_rh; s.coMv = s_coMv; s.coPinMv = s_coPin; s.coPpm = s_coPpm;
   s.tflt = s_tFault;
   s.flt  = (s_tFault ? 1 : 0) | (s_rhFault ? 2 : 0) | (s_coFault ? 4 : 0) |
            ((millis() < CO_WARMUP_MS) ? 8 : 0);
@@ -567,24 +600,185 @@ static void sampleAll() {
 #endif
 }
 
+// ---- 6e. Kalibrasi PT100 terhadap SHT20 -----------------------------
+// SHT20 juga bisa mengukur SUHU (bukan hanya RH). Perintah 0xF3 = ukur suhu,
+// no-hold master, resolusi 14-bit, waktu konversi maks 85 ms.
+// Fungsi ini BLOCKING (~85 ms). Hanya dipakai saat kalibrasi, tidak di loop.
+//
+// Mengembalikan NAN jika sensor tidak merespons atau CRC salah.
+static float sht20ReadTempBlocking() {
+  Wire.beginTransmission(SHT_ADDR);
+  Wire.write(SHT_CMD_T);                                // trigger T, no-hold
+  if (Wire.endTransmission() != 0) return NAN;
+  delay(85);                                            // konversi 14-bit (maks)
+  if (Wire.requestFrom(SHT_ADDR, (uint8_t)3) != 3) return NAN;
+  uint8_t m = Wire.read(), l = Wire.read(), c = Wire.read();
+  if (crc8Sht(m, l) != c) return NAN;
+  uint16_t raw = (((uint16_t)m << 8) | l) & 0xFFFC;
+  return -46.85f + 175.72f * (float)raw / 65536.0f;     // datasheet SHT20
+}
+
+// Kalibrasi satu titik: offset = rata(SHT20) - rata(PT100 mentah).
+// Prasyarat:
+//   - Sesi OFF (g_sessionActive == false).
+//   - Probe PT100 & SHT20 di suhu SAMA (satu ruangan, stabil >=5 menit).
+//   - Suhu < 100 C (SHT20 max 125 C).
+// Hasil disimpan ke NVS (kunci "temp_off") dan langsung berlaku (tanpa reboot).
+static void calibrateTemp() {
+  // ---- Cek prasyarat ----
+  if (g_sessionActive) {
+    Serial.println("\nKalibrasi DITOLAK: sesi sedang berjalan. Geser switch ke OFF dulu.");
+    return;
+  }
+  if (!g_timeOk) {
+    Serial.println("\nPERINGATAN: waktu belum valid (NTP belum sinkron).");
+    Serial.println("Kalibrasi tetap bisa jalan, tetapi sebaiknya tunggu NTP untuk pencatatan waktu.");
+  }
+
+  const int      N         = 30;      // jumlah sampel
+  const uint32_t INTERVAL  = 1000;    // jeda antar sampel (ms)
+  const float    STD_MAX   = 0.5f;    // std dev maks agar hasil diterima
+  const float    OFFSET_MAX = 20.0f;  // offset di luar ini = indikasi kerusakan
+
+  Serial.println();
+  Serial.println("=====================================================");
+  Serial.println("  KALIBRASI SUHU: PT100 vs SHT20 (satu titik)");
+  Serial.println("=====================================================");
+  Serial.println("Syarat:");
+  Serial.println("  1. Sesi OFF (switch di posisi LOW).");
+  Serial.println("  2. Probe PT100 dan SHT20 di SUHU YANG SAMA");
+  Serial.println("     (satu ruangan, tanpa sumber panas, tanpa kipas).");
+  Serial.println("  3. Sudah stabil minimal 5 menit sejak boot.");
+  Serial.println("  4. Suhu < 100 C (SHT20 maks 125 C).");
+  Serial.println();
+  Serial.println("Catatan: SHT20 berada di kotak ESP32 dan bisa lebih hangat");
+  Serial.println("2-5 C akibat panas board. Untuk akurasi tinggi pakai ice bath");
+  Serial.println("(0 C) atau air mendidih sebagai acuan.");
+  Serial.println();
+  Serial.printf("Mengambil %d sampel (interval %lu ms)...\n\n", N, (unsigned long)INTERVAL);
+
+  // Reset state SHT20 supaya tidak ada konversi yang menggantung
+  s_shtPendingCmd = 0;
+  delay(100);
+
+  // ---- Akuisisi sampel ----
+  double sumPt     = 0.0;
+  double sumSht    = 0.0;
+  double sumDelta  = 0.0;
+  double sumDelta2 = 0.0;
+  int    nOk       = 0;
+
+  Serial.println(" #  |  PT100 C |  SHT20 C |  delta C ");
+  Serial.println("----+----------+----------+----------");
+
+  for (int i = 0; i < N; i++) {
+    esp_task_wdt_reset();
+
+    // Baca PT100 MENTAH (tanpa offset) — supaya offset lama tidak menumpuk
+    uint16_t rtdRaw = g_rtd.readRTD();
+    uint8_t  f      = g_rtd.readFault();
+    float    pt     = NAN;
+    if (f) {
+      g_rtd.clearFault();
+    } else {
+      pt = g_rtd.calculateTemperature(rtdRaw, PT100_RNOMINAL, PT100_RREF);
+      if (isnan(pt) || pt < -50.0f || pt > 400.0f) pt = NAN;
+    }
+
+    // Baca SHT20 (blocking)
+    float sht = sht20ReadTempBlocking();
+
+    if (!isnan(pt) && !isnan(sht)) {
+      double d   = (double)sht - (double)pt;
+      sumPt     += pt;
+      sumSht    += sht;
+      sumDelta  += d;
+      sumDelta2 += d * d;
+      nOk++;
+      Serial.printf("%3d | %8.2f | %8.2f | %+8.3f\n", i + 1, pt, sht, d);
+    } else {
+      Serial.printf("%3d | %8s | %8s | %8s\n", i + 1,
+                    isnan(pt)  ? "fault" : "?",
+                    isnan(sht) ? "fault" : "?",
+                    "-");
+    }
+
+    if (i < N - 1) {
+      // SHT20 blocking 85 ms, sisa jeda agar total ~1 sampel/detik
+      uint32_t remain = INTERVAL > 85 ? (INTERVAL - 85) : 0;
+      delay(remain);
+    }
+  }
+
+  Serial.println("----+----------+----------+----------");
+
+  // ---- Analisis ----
+  if (nOk < N / 2) {
+    Serial.printf("GAGAL: hanya %d/%d sampel valid.\n", nOk, N);
+    Serial.println("Periksa wiring PT100 (SPI) dan SHT20 (I2C).");
+    return;
+  }
+
+  double meanPt    = sumPt     / nOk;
+  double meanSht   = sumSht    / nOk;
+  double meanDelta = sumDelta  / nOk;
+  double var       = (sumDelta2 / nOk) - (meanDelta * meanDelta);
+  if (var < 0) var = 0;
+  double stdDev    = sqrt(var);
+  double newOffset = meanSht - meanPt;   // offset yang akan DITAMBAHKAN ke PT100 mentah
+
+  Serial.println();
+  Serial.printf("Sampel valid     : %d / %d\n", nOk, N);
+  Serial.printf("Rata-rata PT100  : %.3f C\n", meanPt);
+  Serial.printf("Rata-rata SHT20  : %.3f C\n", meanSht);
+  Serial.printf("Std dev delta    : %.3f C\n", stdDev);
+  Serial.println();
+  Serial.printf("Offset LAMA      : %+.3f C\n", cfg.tempOffset);
+  Serial.printf("Offset BARU      : %+.3f C\n", newOffset);
+  Serial.println();
+
+  if (stdDev > STD_MAX) {
+    Serial.printf("DITOLAK: sebaran terlalu besar (std %.3f > %.3f C).\n", stdDev, STD_MAX);
+    Serial.println("Suhu belum stabil. Biarkan 5 menit lalu ulangi 'cal'.");
+    return;
+  }
+  if (fabs(newOffset) > OFFSET_MAX) {
+    Serial.printf("DITOLAK: offset %.2f C terlalu besar (indikasi wiring/sensor rusak).\n", newOffset);
+    return;
+  }
+
+  // ---- Simpan ke NVS & terapkan segera ----
+  Preferences p;
+  p.begin("smk", false);
+  p.putFloat("temp_off", (float)newOffset);
+  p.end();
+  cfg.tempOffset = (float)newOffset;
+
+  Serial.printf("TERSIMPAN: temp_off = %+.3f C (langsung berlaku, tanpa reboot).\n", newOffset);
+  Serial.println("Pembacaan berikutnya sudah memakai offset ini.");
+  Serial.println("=====================================================");
+  Serial.println();
+}
+
 // ======================================================================
 // 7. TOGGLE SWITCH  (CR-001: pengganti tombol START/STOP)
 // ======================================================================
-// Switch SPST antara GPIO32 dan GND. ON = LOW. Dibaca sebagai LEVEL, dengan
-// debounce: level baru dianggap sah setelah stabil SWITCH_DEBOUNCE_MS.
+// Switch SPST antara GPIO32 dan 3V3. ON = HIGH (pin ditarik ke 3V3 lewat sakelar),
+// OFF = LOW (pin ditahan ke GND oleh pull-down internal). Dibaca sebagai LEVEL,
+// dengan debounce: level baru dianggap sah setelah stabil SWITCH_DEBOUNCE_MS.
 static bool     s_swRaw = false, s_swOn = false;
 static uint32_t s_swChangedAt = 0;
 static bool     s_bootSwitchOn = false;   // true = switch sudah ON saat boot, belum pernah OFF
 
 static void switchInit() {
-  pinMode(PIN_SWITCH, INPUT_PULLUP);
-  delay(100);                                       // beri waktu pull-up stabil
-  s_swRaw = s_swOn = (digitalRead(PIN_SWITCH) == LOW);
+  pinMode(PIN_SWITCH, INPUT_PULLDOWN);
+  delay(100);                                       // beri waktu pull-down stabil
+  s_swRaw = s_swOn = (digitalRead(PIN_SWITCH) == HIGH);
   s_bootSwitchOn = s_swOn;
 }
 
 static void switchUpdate() {
-  bool raw = (digitalRead(PIN_SWITCH) == LOW);
+  bool raw = (digitalRead(PIN_SWITCH) == HIGH);
   uint32_t now = millis();
   if (raw != s_swRaw) { s_swRaw = raw; s_swChangedAt = now; return; }
   if (raw != s_swOn && (now - s_swChangedAt) >= SWITCH_DEBOUNCE_MS) {
@@ -647,7 +841,7 @@ static void stopSession() {
 static void logTick() {                       // satu baris data tiap logMs
   if ((int32_t)(millis() - s_nextLogAt) < 0) return;
   s_nextLogAt += cfg.logMs;
-  if ((int32_t)(millis() - s_nextLogAt) >= 0) s_nextLogAt = millis() + cfg.logMs;   // kejar-ketinggalan: jangan menumpuk
+  if ((int32_t)(millis() - s_nextLogAt) >= 0) s_nextLogAt = millis() + cfg.logMs;
 
   QItem it; memset(&it, 0, sizeof(it));
   it.act = ACT_DATA; it.seq = ++s_seq; it.ts = (uint32_t)time(nullptr);
@@ -822,19 +1016,12 @@ static int buildWebhookBody(const QItem& it, char* buf, size_t n) {
 
 // return: 0 = gagal (coba lagi), 1 = sukses, 2 = ditolak permanen (jangan diulang),
 //         3 = skrip SUDAH dijalankan Google tetapi hasilnya tidak terbaca
-//
-// Cara kerja Apps Script: permintaan POST langsung DIJALANKAN, lalu Google membalas
-// dengan redirect 302 ke script.googleusercontent.com yang berisi hasilnya.
-// Redirect itu ditangani MANUAL di sini (tidak mengandalkan auto-follow HTTPClient,
-// yang tidak konsisten antar versi core ESP32): POST -> baca header Location -> GET hasil.
 static int sendWebhook(const QItem& it) {
   char body[512];
   int len = buildWebhookBody(it, body, sizeof(body));
   if (len <= 0 || len >= (int)sizeof(body)) return 2;
   const char* what = it.act == ACT_START ? "START" : it.act == ACT_DATA ? "DATA" : "STOP";
 
-  // Koneksi terenkripsi TLS, tetapi sertifikat server Google belum diverifikasi (keputusan sadar,
-  // lihat docs/security.md bagian 'Keterbatasan TLS'). Token + anti-duplikat membatasi dampaknya.
   g_whClient.setInsecure();
   String resp, loc;
   int code;
@@ -860,11 +1047,10 @@ static int sendWebhook(const QItem& it) {
   if (code >= 300 && code < 400) {
     if (loc.length() == 0) { Serial.println("Webhook: redirect tanpa Location"); return 0; }
     if (!loc.startsWith("https://script.googleusercontent.com/") && !loc.startsWith("https://script.google.com/")) {
-      // Dialihkan ke halaman login Google = Web App belum diatur "Anyone"; skrip BELUM dijalankan.
       Serial.println("Webhook: dialihkan ke alamat asing. Pastikan deployment: Execute as Me, Who has access = Anyone.");
       return 0;
     }
-    viaRedirect = true;                       // skrip sudah berjalan; ambil hasilnya
+    viaRedirect = true;
     HTTPClient h2;
     if (!h2.begin(g_whClient, loc)) return 3;
     h2.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -899,8 +1085,6 @@ static void webhookTask(void*) {
     if (r == 1)      { qPopIfId(it.id); fails = 0; unread = 0; }
     else if (r == 2) { qPopIfId(it.id); fails = 0; unread = 0; g_whRejected++; g_statusVer++; }
     else if (r == 3 && ++unread >= 3) {
-      // Skrip terbukti berjalan (redirect ke googleusercontent), tetapi hasilnya tiga kali tak terbaca.
-      // Karena Apps Script menolak duplikat, aman dianggap terkirim agar antrian tidak macet selamanya.
       Serial.println("Webhook: hasil tak terbaca 3x, dianggap terkirim.");
       qPopIfId(it.id); fails = 0; unread = 0;
     }
@@ -921,6 +1105,7 @@ static void cliHelp() {
     "  help                  tampilkan bantuan\n"
     "  show                  tampilkan konfigurasi aktif\n"
     "  status                tampilkan status & pembacaan terakhir\n"
+    "  cal                   kalibrasi suhu PT100 terhadap SHT20 (sesi harus OFF)\n"
     "  set <kunci> <nilai>   ubah konfigurasi (disimpan permanen), contoh:\n"
     "                          set wifi_ssid WifiBaru\n"
     "                          set pub_ms 3000\n"
@@ -949,9 +1134,10 @@ static void cliExec(char* line) {
     Serial.printf("T=%.2f RH=%.1f CO_pin=%.0fmV CO_aout=%.0fmV flt=%u  heap=%u\n",
                   s.temp, s.rh, s.coPinMv, s.coMv, s.flt, (unsigned)ESP.getFreeHeap());
   }
+  else if (!strcmp(cmd, "cal"))    { calibrateTemp(); }
   else if (!strcmp(cmd, "set")) {
     char* key = strtok(nullptr, " ");
-    char* val = key ? key + strlen(key) + 1 : nullptr;       // sisa baris = nilai (boleh berspasi)
+    char* val = key ? key + strlen(key) + 1 : nullptr;
     if (!key || !val || !*val) { Serial.println("Format: set <kunci> <nilai>"); return; }
     if (cfgSet(key, val)) Serial.println("OK. Ketik 'reboot' agar berlaku.");
     else Serial.println("Kunci tidak dikenal / nilai tidak valid. Ketik 'help'.");
@@ -985,11 +1171,9 @@ static void cliPoll() {
 // 11. STATE MACHINE  &  setup() / loop()
 // ======================================================================
 //  INITIALIZING -> CONNECTING_WIFI -> SYNCING_TIME -> CONNECTING_MQTT -> IDLE
-//  IDLE --(switch ON)--> SESSION_ACTIVE --(switch OFF)--> IDLE
-//  Jika switch sudah ON saat boot: IDLE ditahan di WAIT_SWITCH_OFF sampai
-//  switch digeser OFF (mencegah sesi baru tak sengaja setelah listrik padam).
-//  Wi-Fi putus saat SESSION_ACTIVE: sesi TETAP berjalan, data masuk antrian.
-//  Wi-Fi putus saat IDLE: kembali ke CONNECTING_WIFI.
+//  IDLE --(switch HIGH)--> SESSION_ACTIVE --(switch LOW)--> IDLE
+//  Jika switch sudah HIGH saat boot: IDLE ditahan di WAIT_SWITCH_OFF sampai
+//  switch digeser LOW (mencegah sesi baru tak sengaja setelah listrik padam).
 static void runStateMachine() {
   switch (g_state) {
     case ST_INITIALIZING:
@@ -1008,7 +1192,7 @@ static void runStateMachine() {
     case ST_CONNECTING_MQTT:
       if (!g_wifiOk) setState(ST_CONNECTING_WIFI);
       else if (g_mqttOk || (millis() - g_stateEnteredAt) > MQTT_READY_WAIT_MS)
-        setState(s_bootSwitchOn ? ST_WAIT_SWITCH_OFF : ST_IDLE);   // broker lambat tidak menghalangi pencatatan
+        setState(s_bootSwitchOn ? ST_WAIT_SWITCH_OFF : ST_IDLE);
       break;
 
     case ST_WAIT_SWITCH_OFF:
@@ -1019,11 +1203,11 @@ static void runStateMachine() {
       if (!g_wifiOk)        { setState(ST_CONNECTING_WIFI); break; }
       if (!g_timeOk)        { setState(ST_SYNCING_TIME);    break; }
       if (s_bootSwitchOn)   { setState(ST_WAIT_SWITCH_OFF); break; }
-      if (s_swOn) startSession();                                  // switch ON = START
+      if (s_swOn) startSession();
       break;
 
     case ST_SESSION_ACTIVE:
-      if (!s_swOn) { stopSession(); break; }                       // switch OFF = STOP
+      if (!s_swOn) { stopSession(); break; }
       logTick();
       break;
   }
@@ -1050,7 +1234,6 @@ void setup() {
   rhInit();
   coInit();
 
-  // Watchdog: reset otomatis bila program macet (NFR-006)
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
   esp_task_wdt_config_t twdt;
   twdt.timeout_ms = WDT_TIMEOUT_S * 1000;
@@ -1079,7 +1262,7 @@ void setup() {
   }
   g_mqtt.setServer(cfg.mqttHost, cfg.mqttPort);
   g_mqtt.setKeepAlive(30);
-  g_mqtt.setSocketTimeout(8);      // TLS (EMQX Serverless) butuh waktu handshake lebih lama
+  g_mqtt.setSocketTimeout(8);
   g_mqtt.setBufferSize(512);
 
   xTaskCreatePinnedToCore(mqttTask,    "mqtt",    8192,  NULL, 1, NULL, 0);
